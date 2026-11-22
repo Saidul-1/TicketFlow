@@ -117,10 +117,29 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ### Phase 6: Strategy Patterns (Pricing & Pluggable Payments)
 - **Branch**: `feature/strategy-pricing-payments`
-- **Planned Actions**:
-  - `PricingStrategy` interface with `Standard` and `EarlyBird` implementations.
-  - `PaymentProcessor` interface with `MockStripe` and `MockPayPal` providers.
-  - Idempotency key protection to prevent duplicate charges on network retries.
+- **Actions Completed**:
+  - Implemented **Strategy Pattern for Dynamic Pricing**:
+    - `PricingStrategy` interface enforcing Open/Closed and Liskov Substitution principles.
+    - `StandardPricingStrategy`: Returns standard tier base price.
+    - `EarlyBirdPricingStrategy`: 20% discount if reserved $\ge 7$ days prior to event; standard base price if $< 7$ days.
+    - `PricingService` (Strategy Context): Injects and registers strategies dynamically, wiring into `BookingsService.holdSeats`.
+  - Implemented **Strategy Pattern for Pluggable Payments**:
+    - `PaymentProcessor` interface (`processPayment(PaymentRequest): Promise<PaymentResult>`).
+    - `MockStripeProcessor`: Simulates card auth with `ch_stripe_mock_` transaction IDs.
+    - `MockPaypalProcessor`: Simulates wallet capture with `PAYPAL-MOCK-` transaction IDs.
+    - `PaymentsService` (Strategy Context): Dispatches payments to chosen provider without modifying any booking code.
+  - Implemented **Payment Idempotency**:
+    - Detects identical `idempotencyKey` on confirmed bookings and replays cached transaction result without re-charging or modifying the database.
+  - Enforced hold validity before checkout: expired holds are rejected (`BadRequestException`) and seats are automatically released.
+  - Transactionally confirmed booking and marked all associated seats as `BOOKED`.
+  - Emitted `booking.confirmed` domain event for decoupled notifications.
+  - Added unit test suites for `pricing.service.spec.ts` and `payments.service.spec.ts`. Total **34 unit tests** passing across 8 test suites.
+- **Git Commits**:
+  - `feat(pricing): implement strategy pattern for dynamic pricing calculations`
+  - `feat(payments): implement strategy pattern for pluggable mock payment providers`
+  - `feat(payments): implement payment idempotency to prevent duplicate charges`
+  - `test(strategy): add unit tests for pricing strategies and pluggable payment processors`
+  - `docs: update workflow log with phase 6 strategy patterns`
 
 ---
 

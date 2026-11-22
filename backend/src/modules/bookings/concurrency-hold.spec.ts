@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PricingService } from '../pricing/pricing.service';
 import { ConflictException } from '@nestjs/common';
 import { BookingStatus, PricingStrategyType } from '@prisma/client';
 
@@ -52,10 +53,15 @@ describe('Concurrency Simulation - Zero Double-Booking Guarantee', () => {
       $transaction: jest.fn(async (cb) => cb(mockPrisma)),
     };
 
+    const mockPricingService = {
+      calculatePrice: jest.fn((type, basePrice) => basePrice),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BookingsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: PricingService, useValue: mockPricingService },
       ],
     }).compile();
 

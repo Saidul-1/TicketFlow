@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PricingService } from '../pricing/pricing.service';
 import { ConflictException, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { BookingStatus, PricingStrategyType } from '@prisma/client';
 
 describe('BookingsService - Concurrency & Holds', () => {
   let service: BookingsService;
   let prisma: any;
+  let pricingService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -30,10 +32,15 @@ describe('BookingsService - Concurrency & Holds', () => {
       $transaction: jest.fn((cb) => cb(prisma)),
     };
 
+    pricingService = {
+      calculatePrice: jest.fn((type, basePrice) => basePrice),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BookingsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: PricingService, useValue: pricingService },
       ],
     }).compile();
 
