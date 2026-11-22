@@ -57,10 +57,19 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ### Phase 3: Authentication & RBAC (Organizer vs Customer)
 - **Branch**: `feature/auth-rbac`
-- **Planned Actions**:
-  - User registration with `bcryptjs` password hashing and input validation DTOs.
-  - JWT token generation and Passport JWT strategy.
-  - `@Roles('ORGANIZER' | 'CUSTOMER')` guard intercepting unauthorized actions.
+- **Actions Completed**:
+  - Implemented `RegisterDto`, `LoginDto`, and `AuthResponseDto` with strict class-validator rules and Swagger documentation.
+  - Implemented `AuthService` with secure password hashing (`bcryptjs`), JWT token generation, and account lookup.
+  - Implemented `JwtStrategy` and `JwtAuthGuard` extracting Bearer tokens and validating sessions.
+  - Implemented `RolesGuard` and `@Roles('ORGANIZER' | 'CUSTOMER')` metadata decorator enforcing role-based access control.
+  - Implemented `@CurrentUser()` parameter decorator to extract the authenticated user context.
+  - Created endpoints: `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `GET /auth/organizer-check`, `GET /auth/customer-check`.
+  - Added unit test suites for `AuthService` (registration conflict, password validation, login) and `RolesGuard` (role allowance and forbidden rejection). All 9 tests passing.
+- **Git Commits**:
+  - `feat(auth): implement user registration, login, and jwt signing`
+  - `feat(auth): implement rbac with roles guard and current user decorator`
+  - `test(auth): add unit tests for auth service and roles guard`
+  - `docs: update workflow log with phase 3 auth and rbac`
 
 ---
 
