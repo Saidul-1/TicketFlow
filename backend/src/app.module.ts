@@ -7,6 +7,7 @@ import { EventsModule } from './modules/events/events.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -22,6 +23,7 @@ import { AppService } from './app.service';
     EventsModule,
     PricingModule,
     PaymentsModule,
+    NotificationsModule,
     BookingsModule,
   ],
   controllers: [AppController],

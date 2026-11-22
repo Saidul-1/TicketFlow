@@ -145,10 +145,31 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ### Phase 7: Booking Lifecycle, Observer Notifications & Refund Engine
 - **Branch**: `feature/booking-lifecycle-notifications`
-- **Planned Actions**:
-  - State pattern for booking lifecycle transitions.
-  - Domain event emission for notifications (Email logger + In-App database store).
-  - Cancellation refund engine: 100% refund if $> 24$h before event, 0% refund if $\le 24$h.
+- **Actions Completed**:
+  - Implemented **State Pattern for Booking Lifecycle**:
+    - `BookingState` interface enforcing finite state transitions: `Held` $\rightarrow$ `Pending Payment` $\rightarrow$ `Confirmed` / `Expired` / `Cancelled`.
+    - Concrete states: `HeldState`, `PendingPaymentState`, `ConfirmedState`, `ExpiredState`, `CancelledState`.
+    - `BookingLifecycleService` (State Context): Validates transition legality and rejects illegal state transitions (e.g., `Expired` $\rightarrow$ `Confirmed`) with `BadRequestException`.
+  - Implemented **Cancellation & Refund Rule Engine**:
+    - `POST /bookings/:id/cancel`: Calculates event date vs cancellation timestamp.
+    - Rule: **100% full refund** if cancelled $> 24$ hours before event; **0% non-refundable** if cancelled $\le 24$ hours before event.
+    - Restores all associated seats back to `AVAILABLE` for other customers.
+    - Logs detailed cancellation reason and refund amounts to `BookingStatusHistory`.
+  - Implemented **Observer Pattern for Decoupled Notifications**:
+    - Domain events: `BookingConfirmedEvent` and `BookingCancelledEvent`.
+    - `EmailNotificationListener`: Simulates outbound emails with formatted logger output.
+    - `InAppNotificationListener`: Persists records to `Notification` table.
+    - Core booking and payment services only emit events; new channels (e.g., SMS/Push) can be added without modifying booking code (**Open/Closed Principle**).
+  - Implemented In-App Notification Center:
+    - `GET /notifications`: Lists user notifications and unread badge count.
+    - `PATCH /notifications/:id/read` & `PATCH /notifications/read-all`: Mark as read.
+  - Added unit test suites for `BookingLifecycleService`, `NotificationsService`, and cancellation refund calculations. Total **44 unit tests** passing across 10 test suites.
+- **Git Commits**:
+  - `feat(bookings): implement state pattern for booking lifecycle transitions`
+  - `feat(notifications): implement observer pattern for decoupled email and in-app notifications`
+  - `feat(bookings): implement cancellation and refund rule calculation`
+  - `test(lifecycle): add unit tests for state machine, notifications, and refund rule`
+  - `docs: update workflow log with phase 7 lifecycle and notifications`
 
 ---
 

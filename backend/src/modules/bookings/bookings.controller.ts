@@ -63,6 +63,24 @@ export class BookingsController {
     return this.bookingsService.releaseHold(userId, bookingId);
   }
 
+  @Post(':id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Cancel a booking with refund rule (>24h full refund, <=24h non-refundable)',
+  })
+  @ApiParam({ name: 'id', description: 'Booking UUID' })
+  @ApiResponse({ status: 200, description: 'Booking cancelled and refund processed' })
+  @ApiResponse({ status: 400, description: 'Illegal state transition or cannot cancel' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Cannot cancel another user booking' })
+  async cancelBooking(
+    @CurrentUser('id') userId: string,
+    @Param('id') bookingId: string,
+  ) {
+    return this.bookingsService.cancelBooking(userId, bookingId);
+  }
+
   @Get('my-bookings')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
