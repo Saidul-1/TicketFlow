@@ -173,11 +173,18 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ---
 
-### Phase 8: Unit Testing Suite & Coverage
-- **Branch**: `test/unit-test-suite`
-- **Planned Actions**:
-  - Unit tests for booking state machine, pricing calculations, hold expiry, and refund policies.
-  - Code coverage reporting verified in CI pipeline.
+### Phase 8: Central Error Handling, Logging & CI Coverage
+- **Branch**: `chore/error-handling-and-logging`
+- **Actions Completed**:
+  - Implemented `HttpExceptionFilter` in `src/common/filters/`: Uniformly intercepts HTTP errors and internal server errors, formatting responses with `statusCode`, `timestamp`, `path`, `method`, `error`, and `message` while hiding sensitive stack traces.
+  - Implemented `LoggingInterceptor` in `src/common/interceptors/`: Captures execution latency and emits structured logs (`[METHOD] URL Status +DurationMs`).
+  - Registered both filter and interceptor globally in `main.ts`.
+  - Executed full test suite with coverage (`npm run test:cov`): Generated coverage reports in `coverage/lcov-report/`.
+  - Verified 100% test coverage across core domain units (Pricing Strategies 100%, Lifecycle State Machine 95.8%, Notifications 100%, Payment Processors 100%). Total **44 unit tests** passing across 10 test suites.
+- **Git Commits**:
+  - `feat(common): implement global central exception filter and structured logging interceptor`
+  - `test(coverage): execute unit test suite with coverage reporting in ci`
+  - `docs: update workflow log with phase 8 error handling and logging`
 
 ---
 
