@@ -5,6 +5,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EventsModule } from './modules/events/events.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { PricingModule } from './modules/pricing/pricing.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -18,6 +20,8 @@ import { AppService } from './app.service';
     PrismaModule,
     AuthModule,
     EventsModule,
+    PricingModule,
+    PaymentsModule,
     BookingsModule,
   ],
   controllers: [AppController],
