@@ -36,16 +36,22 @@ This document records the exact step-by-step progress, architectural decisions, 
 ---
 
 ### Phase 2: Database Schema & Modeling (Prisma + Supabase)
-- **Branch**: `feature/database-modeling` *(Current Target)*
-- **Planned Actions**:
-  - Configure Prisma ORM with Supabase PostgreSQL connection strings (`DATABASE_URL` & `DIRECT_URL`).
-  - Define relational schema:
-    - `User`: Roles (`ORGANIZER`, `CUSTOMER`), authentication credentials.
-    - `Event`: Venues, dates, grid dimensions ($rows \times seats$), pricing strategy selector.
-    - `SeatTier` & `Seat`: Tiered pricing, row labels, seat numbers, hold statuses (`AVAILABLE`, `HELD`, `BOOKED`), hold expiry timestamps, and concurrency versions.
-    - `Booking`, `BookingSeat`, `BookingStatusHistory`: Audit log and lifecycle tracking.
-    - `Notification`: In-app notification center data store.
-  - Create database seed script with working demo accounts for both roles and sample events with full seat maps.
+- **Branch**: `feature/database-modeling`
+- **Actions Completed**:
+  - Configured Prisma with PostgreSQL datasource supporting Supabase pooled (`DATABASE_URL`) and direct (`DIRECT_URL`) connections.
+  - Defined relational database schema:
+    - `User`: Roles (`ORGANIZER`, `CUSTOMER`), password hashing, audit timestamps.
+    - `Event`: Title, venue, city, dates, grid dimensions ($rows \times seats$), pricing strategy enum (`STANDARD`, `EARLY_BIRD`).
+    - `SeatTier` & `Seat`: Tiered pricing (VIP, Regular, Economy), row labels, seat numbers, hold statuses (`AVAILABLE`, `HELD`, `BOOKED`), hold expiration timestamp, and optimistic version counter. Unique constraint on `[eventId, rowLabel, seatNumber]` guarantees physical seat uniqueness.
+    - `Booking`, `BookingSeat`, `BookingStatusHistory`: Full audit trail for booking lifecycle transitions (`HELD` $\rightarrow$ `PENDING_PAYMENT` $\rightarrow$ `CONFIRMED` / `EXPIRED` / `CANCELLED`), refund amounts, and idempotency key uniqueness.
+    - `Notification`: In-app notification center store.
+  - Implemented injectable `PrismaService` and global `PrismaModule` in NestJS.
+  - Created automated database seeder (`prisma/seed.ts`) with demo credentials for Organizer and Customers, plus 2 showcase events with full seat maps (64 interactive seats total).
+- **Git Commits**:
+  - `feat(backend): configure prisma with supabase postgresql connection`
+  - `feat(backend): define relational schema for users, events, seat tiers, and seats`
+  - `feat(backend): define schema for bookings, status history, and in-app notifications`
+  - `feat(backend): implement prisma service and database seed script with demo credentials`
 
 ---
 
