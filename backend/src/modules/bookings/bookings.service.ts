@@ -5,8 +5,10 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
+import { BookingLifecycleService } from './lifecycle/booking-lifecycle.service';
 import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { BookingResponseDto, BookingSeatItemDto } from './dto/booking-response.dto';
 import { BookingStatus, Prisma, SeatStatus } from '@prisma/client';
@@ -16,6 +18,8 @@ export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private pricingService: PricingService,
+    private lifecycleService: BookingLifecycleService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -194,6 +198,117 @@ export class BookingsService {
 
       return { message: 'Hold successfully released and seats made available' };
     });
+  }
+
+  /**
+   * Cancel Booking with Business Refund Rule:
+   * - 100% full refund if cancelled > 24 hours before event start.
+   * - 0% refund if cancelled <= 24 hours before event start.
+   * - Restores seats back to AVAILABLE.
+   * - Emits domain event for decoupled notifications (Observer Pattern).
+   */
+  async cancelBooking(userId: string, bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        event: true,
+        bookingSeats: true,
+        user: true,
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException(`Booking with ID "${bookingId}" not found`);
+    }
+
+    if (booking.userId !== userId) {
+      throw new ForbiddenException('You can only cancel your own bookings');
+    }
+
+    // Validate state transition using State Pattern
+    this.lifecycleService.validateTransition(booking.status, BookingStatus.CANCELLED);
+
+    // Calculate Refund Rule:
+    const now = new Date();
+    const eventTime = new Date(booking.event.eventDate).getTime();
+    const diffHours = (eventTime - now.getTime()) / (1000 * 60 * 60);
+
+    let refundPercentage = 0;
+    let refundAmount = 0;
+
+    if (booking.status === BookingStatus.CONFIRMED) {
+      if (diffHours > 24) {
+        // > 24h before event: 100% full refund
+        refundPercentage = 100;
+        refundAmount = Number(booking.totalPrice);
+      } else {
+        // <= 24h before event: 0% non-refundable
+        refundPercentage = 0;
+        refundAmount = 0;
+      }
+    }
+
+    // Transactionally update booking, release seats, and audit status history
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Restore all seats to AVAILABLE
+      for (const bs of booking.bookingSeats) {
+        await tx.seat.update({
+          where: { id: bs.seatId },
+          data: {
+            status: SeatStatus.AVAILABLE,
+            heldByUserId: null,
+            holdExpiresAt: null,
+          },
+        });
+      }
+
+      // 2. Update booking status and refund amount
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: BookingStatus.CANCELLED,
+          refundAmount: new Prisma.Decimal(refundAmount),
+        },
+      });
+
+      // 3. Log Status Transition Audit
+      const reason =
+        refundPercentage > 0
+          ? `Booking cancelled >24h before event. Full refund ($${refundAmount.toFixed(2)}) issued.`
+          : `Booking cancelled <=24h before event. Non-refundable ($0.00 refund).`;
+
+      await tx.bookingStatusHistory.create({
+        data: {
+          bookingId,
+          fromStatus: booking.status,
+          toStatus: BookingStatus.CANCELLED,
+          reason,
+        },
+      });
+    });
+
+    // 4. Emit Domain Event (Observer Pattern)
+    this.eventEmitter.emit('booking.cancelled', {
+      bookingId: booking.id,
+      userId: booking.userId,
+      userEmail: booking.user.email,
+      eventTitle: booking.event.title,
+      bookingReference: booking.bookingReference,
+      refundAmount,
+      refundPercentage,
+    });
+
+    return {
+      success: true,
+      bookingReference: booking.bookingReference,
+      status: BookingStatus.CANCELLED,
+      refundPercentage,
+      refundAmount,
+      message:
+        refundPercentage > 0
+          ? `Booking successfully cancelled. Full refund of $${refundAmount.toFixed(2)} (${refundPercentage}%) issued.`
+          : `Booking cancelled within 24 hours of event start. Non-refundable.`,
+    };
   }
 
   /**
