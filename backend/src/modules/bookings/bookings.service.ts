@@ -6,13 +6,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PricingService } from '../pricing/pricing.service';
 import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { BookingResponseDto, BookingSeatItemDto } from './dto/booking-response.dto';
 import { BookingStatus, Prisma, SeatStatus } from '@prisma/client';
 
 @Injectable()
 export class BookingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private pricingService: PricingService,
+  ) {}
 
   /**
    * Concurrency-Safe Temporary Seat Hold
@@ -69,7 +73,13 @@ export class BookingsService {
         });
 
         if (seat) {
-          const price = Number(seat.seatTier.basePrice);
+          const rawPrice = Number(seat.seatTier.basePrice);
+          const price = this.pricingService.calculatePrice(
+            event.pricingStrategy,
+            rawPrice,
+            event.eventDate,
+            new Date(),
+          );
           totalPrice += price;
           heldSeatsDetails.push({
             seatId: seat.id,
