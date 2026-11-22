@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MockStripeProcessor } from './processors/mock-stripe.processor';
 import { MockPaypalProcessor } from './processors/mock-paypal.processor';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { BookingStatus, PaymentProviderType, SeatStatus } from '@prisma/client';
 
 describe('PaymentsService - Strategy Pattern & Idempotency', () => {

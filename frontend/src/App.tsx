@@ -1,76 +1,96 @@
-import { Ticket, Calendar, ShieldCheck, Zap } from 'lucide-react';
+import { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Navbar } from './components/Navbar';
+import { EventBrowsePage } from './pages/EventBrowsePage';
+import { EventDetailsPage } from './pages/EventDetailsPage';
+import { MyBookingsPage } from './pages/MyBookingsPage';
+import { OrganizerDashboardPage } from './pages/OrganizerDashboardPage';
+import { ShieldCheck, Heart } from 'lucide-react';
 
-function App() {
+function MainApp() {
+  const { user } = useAuth();
+  const [currentView, setCurrentView] = useState<'browse' | 'event-details' | 'my-bookings' | 'organizer'>('browse');
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  const handleSelectEvent = (eventId: string) => {
+    setSelectedEventId(eventId);
+    setCurrentView('event-details');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigate = (view: 'browse' | 'my-bookings' | 'organizer') => {
+    setCurrentView(view);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-between">
-      {/* Header */}
-      <header className="border-b bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow">
-              <Ticket className="w-6 h-6" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-slate-900">
-              Ticket<span className="text-indigo-600">Flow</span>
-            </span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-              <span className="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-              API Live
-            </span>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+      <div>
+        <Navbar currentView={currentView} onNavigate={handleNavigate} />
 
-      {/* Hero */}
-      <main className="max-w-5xl mx-auto px-4 py-16 text-center">
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
-          High-Concurrency Event Ticketing
-        </h1>
-        <p className="mt-4 text-lg text-slate-600 max-w-2xl mx-auto">
-          Built with Clean Architecture, SOLID Principles, and Atomic Concurrency Controls to prevent double-booking.
-        </p>
+        <main className="pb-16">
+          {currentView === 'browse' && (
+            <EventBrowsePage onSelectEvent={handleSelectEvent} />
+          )}
 
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-          <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4">
-              <Zap className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-900">Atomic Hold Engine</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Zero double-booking guarantee powered by row-level conditional updates and automatic 5-minute lazy expiration.
-            </p>
-          </div>
+          {currentView === 'event-details' && selectedEventId && (
+            <EventDetailsPage
+              eventId={selectedEventId}
+              onBack={() => handleNavigate('browse')}
+              onNavigateToBookings={() => handleNavigate('my-bookings')}
+            />
+          )}
 
-          <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-900">Enterprise SOLID Design</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Pluggable Strategy pattern for payments & pricing, Observer pattern for decoupled notifications, and State pattern for booking lifecycle.
-            </p>
-          </div>
+          {currentView === 'my-bookings' && <MyBookingsPage />}
 
-          <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center mb-4">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-900">Dual Roles (RBAC)</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Full isolation between Event Organizers (venue & seat map management) and Customers (real-time seat selection & booking).
-            </p>
-          </div>
-        </div>
-      </main>
+          {currentView === 'organizer' && (
+            user?.role === 'ORGANIZER' ? (
+              <OrganizerDashboardPage onSelectEvent={handleSelectEvent} />
+            ) : (
+              <div className="max-w-md mx-auto my-20 p-8 bg-white rounded-3xl border border-slate-200 text-center space-y-3">
+                <div className="w-12 h-12 bg-purple-100 text-purple-700 rounded-2xl flex items-center justify-center mx-auto font-bold">
+                  RBAC
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Organizer Access Required</h3>
+                <p className="text-xs text-slate-500">
+                  Please sign in with an Organizer account or use the &quot;Demo: Organizer&quot; quick switch in the top header.
+                </p>
+              </div>
+            )
+          )}
+        </main>
+      </div>
 
       {/* Footer */}
-      <footer className="border-t bg-white py-6 text-center text-xs text-slate-500">
-        TicketFlow &copy; 2026. CPS Academy InterviewQuest-3 Round 5 Assignment.
+      <footer className="border-t border-slate-200 bg-white py-8 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-2">
+            <span className="font-extrabold text-slate-900 text-sm">Ticket<span className="text-indigo-600">Flow</span></span>
+            <span>•</span>
+            <span>CPS Academy InterviewQuest-3 Round 5 Assignment</span>
+          </div>
+
+          <div className="flex items-center space-x-4 text-slate-400">
+            <span className="flex items-center space-x-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Clean Architecture & SOLID</span>
+            </span>
+            <span>•</span>
+            <span className="flex items-center space-x-1">
+              <Heart className="w-3.5 h-3.5 text-red-400" />
+              <span>Zero Double-Booking Guarantee</span>
+            </span>
+          </div>
+        </div>
       </footer>
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
+  );
+}

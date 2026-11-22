@@ -6,9 +6,7 @@ import { BookingLifecycleService } from './lifecycle/booking-lifecycle.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   ConflictException,
-  NotFoundException,
   ForbiddenException,
-  BadRequestException,
 } from '@nestjs/common';
 import { BookingStatus, PricingStrategyType, SeatStatus } from '@prisma/client';
 
