@@ -93,10 +93,25 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ### Phase 5: Concurrency-Safe Seat Hold Engine
 - **Branch**: `feature/concurrency-seat-hold`
-- **Planned Actions**:
-  - Atomic conditional update query ensuring strictly 1 user succeeds when multiple users click the same seat.
-  - 5-minute hold reservation window.
-  - Concurrency simulation test script verifying zero double-booking under load.
+- **Actions Completed**:
+  - Implemented `HoldSeatsDto` with UUID array validation and `BookingResponseDto` with live hold countdown.
+  - Implemented atomic conditional update logic in `BookingsService.holdSeats`:
+    ```sql
+    UPDATE "Seat"
+    SET "status" = 'HELD', "heldByUserId" = :userId, "holdExpiresAt" = :holdExpiresAt, "version" = "version" + 1
+    WHERE "id" = :seatId AND ("status" = 'AVAILABLE' OR ("status" = 'HELD' AND "holdExpiresAt" < NOW()))
+    ```
+  - Guaranteed zero double-booking under concurrent load: throws `409 ConflictException` if affected rows = 0.
+  - Created booking in `HELD` status, associated `BookingSeat` records, and logged initial transition in `BookingStatusHistory`.
+  - Implemented voluntary hold release endpoint `POST /bookings/:id/release` restoring seats to `AVAILABLE` and setting status to `EXPIRED`.
+  - Implemented customer booking queries `GET /bookings/my-bookings` and `GET /bookings/:id` with remaining hold timer calculation.
+  - Added concurrency simulation test suite (`concurrency-hold.spec.ts`) executing 10 simultaneous requests targeting the same seat: verified strictly 1 succeeds and 9 fail with 409 Conflict.
+  - Added unit test suite for bookings service. Total **23 unit tests** passing across 6 test suites.
+- **Git Commits**:
+  - `feat(seats): implement atomic conditional update seat hold mechanism`
+  - `feat(bookings): initialize booking in held state with status history and voluntary release`
+  - `test(concurrency): add concurrency test suite verifying zero double-booking under 10 simultaneous requests`
+  - `docs: update workflow log with phase 5 concurrency seat hold`
 
 ---
 
