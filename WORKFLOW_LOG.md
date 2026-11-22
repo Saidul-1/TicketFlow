@@ -75,10 +75,19 @@ This document records the exact step-by-step progress, architectural decisions, 
 
 ### Phase 4: Event Management & Public Discovery
 - **Branch**: `feature/events-and-discovery`
-- **Planned Actions**:
-  - Organizer-only event creation with automatic seat grid matrix generation.
-  - Public search by name, city filter, date filter, and pagination.
-  - Dynamic seat map endpoint with lazy hold expiration logic.
+- **Actions Completed**:
+  - Implemented `CreateEventDto`, `UpdateEventDto`, `EventQueryDto`, and `SeatMapResponseDto` with nested validation.
+  - Implemented `EventsService` with transactional event creation, automatic tier row validation, and automatic seat grid generator ($rows \times seats$ mapped to letters 'A', 'B', etc.).
+  - Enforced strict business rule: **Organizers can only manage and delete their own events** (`ForbiddenException` thrown on violation).
+  - Implemented public discovery endpoint `GET /events` supporting full-text search (title/venue/city), city filtering, date ranges, and pagination, calculating lowest starting price per event.
+  - Implemented dynamic seat map query `GET /events/:id/seats` with **dynamic lazy hold expiration**: automatically treats held seats with `holdExpiresAt < NOW()` as `AVAILABLE`, and computes `secondsRemaining` and `isHeldByMe` for active holds.
+  - Added unit test suite in `events.service.spec.ts` covering tier validation, ownership enforcement, and lazy hold expiration. Total 16 unit tests passing across 4 suites.
+- **Git Commits**:
+  - `feat(events): implement event management and automatic seat grid generator`
+  - `feat(events): enforce organizer ownership and public discovery with pagination`
+  - `feat(events): implement dynamic seat map query with lazy hold expiry`
+  - `test(events): add unit tests for event creation, ownership, and seat map expiry`
+  - `docs: update workflow log with phase 4 events and discovery`
 
 ---
 
