@@ -1,0 +1,187 @@
+// Prisma Schema for TicketFlow
+// Supabase PostgreSQL Configuration
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ORGANIZER
+  CUSTOMER
+}
+
+enum PricingStrategyType {
+  STANDARD
+  EARLY_BIRD
+}
+
+enum SeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+}
+
+enum BookingStatus {
+  HELD
+  PENDING_PAYMENT
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentProviderType {
+  MOCK_STRIPE
+  MOCK_PAYPAL
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  role         Role     @default(CUSTOMER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events        Event[]        @relation("OrganizerEvents")
+  bookings      Booking[]
+  heldSeats     Seat[]         @relation("UserHeldSeats")
+  notifications Notification[]
+
+  @@index([role])
+}
+
+model Event {
+  id              String              @id @default(uuid())
+  organizerId     String
+  title           String
+  description     String              @db.Text
+  venue           String
+  city            String
+  eventDate       DateTime
+  pricingStrategy PricingStrategyType @default(STANDARD)
+  totalRows       Int
+  seatsPerRow     Int
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  organizer User       @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
+  seatTiers SeatTier[]
+  seats     Seat[]
+  bookings  Booking[]
+
+  @@index([city])
+  @@index([eventDate])
+  @@index([organizerId])
+}
+
+model SeatTier {
+  id        String  @id @default(uuid())
+  eventId   String
+  name      String // VIP, Regular, Economy
+  basePrice Decimal @db.Decimal(10, 2)
+  fromRow   Int // 1-indexed row start
+  toRow     Int // 1-indexed row end
+
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  seats Seat[]
+
+  @@index([eventId])
+}
+
+model Seat {
+  id            String     @id @default(uuid())
+  eventId       String
+  seatTierId    String
+  rowLabel      String // A, B, C...
+  seatNumber    Int // 1, 2, 3...
+  status        SeatStatus @default(AVAILABLE)
+  heldByUserId  String?
+  holdExpiresAt DateTime?
+  version       Int        @default(0)
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  seatTier     SeatTier      @relation(fields: [seatTierId], references: [id], onDelete: Cascade)
+  heldByUser   User?         @relation("UserHeldSeats", fields: [heldByUserId], references: [id], onDelete: SetNull)
+  bookingSeats BookingSeat[]
+
+  @@unique([eventId, rowLabel, seatNumber])
+  @@index([eventId, status])
+  @@index([status, holdExpiresAt])
+}
+
+model Booking {
+  id                  String               @id @default(uuid())
+  bookingReference    String               @unique // TF-20261122-XXXX
+  eventId             String
+  userId              String
+  status              BookingStatus        @default(HELD)
+  totalPrice          Decimal              @db.Decimal(10, 2)
+  pricingStrategyUsed String
+  paymentProvider     PaymentProviderType?
+  paymentId           String?
+  idempotencyKey      String?              @unique
+  refundAmount        Decimal?             @db.Decimal(10, 2)
+  holdExpiresAt       DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  event         Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingSeats  BookingSeat[]
+  statusHistory BookingStatusHistory[]
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([status])
+}
+
+model BookingSeat {
+  id           String  @id @default(uuid())
+  bookingId    String
+  seatId       String
+  priceCharged Decimal @db.Decimal(10, 2)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seat    Seat    @relation(fields: [seatId], references: [id], onDelete: Restrict)
+
+  @@unique([bookingId, seatId])
+}
+
+model BookingStatusHistory {
+  id         String         @id @default(uuid())
+  bookingId  String
+  fromStatus BookingStatus?
+  toStatus   BookingStatus
+  reason     String?
+  createdAt  DateTime       @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  title     String
+  message   String           @db.Text
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
