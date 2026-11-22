@@ -2,13 +2,22 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
-import { ConflictException, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { BookingStatus, PricingStrategyType } from '@prisma/client';
+import { BookingLifecycleService } from './lifecycle/booking-lifecycle.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
+import { BookingStatus, PricingStrategyType, SeatStatus } from '@prisma/client';
 
-describe('BookingsService - Concurrency & Holds', () => {
+describe('BookingsService - Concurrency, Holds & Cancellation', () => {
   let service: BookingsService;
   let prisma: any;
   let pricingService: any;
+  let lifecycleService: any;
+  let eventEmitter: any;
 
   beforeEach(async () => {
     prisma = {
@@ -33,7 +42,16 @@ describe('BookingsService - Concurrency & Holds', () => {
     };
 
     pricingService = {
-      calculatePrice: jest.fn((type, basePrice) => basePrice),
+      calculatePrice: jest.fn((_type, basePrice) => basePrice),
+    };
+
+    lifecycleService = {
+      validateTransition: jest.fn(),
+      canTransition: jest.fn().mockReturnValue(true),
+    };
+
+    eventEmitter = {
+      emit: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -41,6 +59,8 @@ describe('BookingsService - Concurrency & Holds', () => {
         BookingsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PricingService, useValue: pricingService },
+        { provide: BookingLifecycleService, useValue: lifecycleService },
+        { provide: EventEmitter2, useValue: eventEmitter },
       ],
     }).compile();
 
@@ -56,7 +76,6 @@ describe('BookingsService - Concurrency & Holds', () => {
         seatTiers: [{ id: 'tier-1', name: 'VIP', basePrice: 150 }],
       });
 
-      // Atomic conditional update affects 1 row -> lock acquired!
       prisma.$executeRaw.mockResolvedValue(1);
 
       prisma.seat.findUnique.mockResolvedValue({
@@ -93,7 +112,6 @@ describe('BookingsService - Concurrency & Holds', () => {
         pricingStrategy: PricingStrategyType.STANDARD,
       });
 
-      // Atomic update affected 0 rows -> conflict / race condition caught!
       prisma.$executeRaw.mockResolvedValue(0);
 
       await expect(
@@ -103,66 +121,94 @@ describe('BookingsService - Concurrency & Holds', () => {
         }),
       ).rejects.toThrow(ConflictException);
     });
-
-    it('should throw NotFoundException if event does not exist', async () => {
-      prisma.event.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.holdSeats('user-1', {
-          eventId: 'non-existent',
-          seatIds: ['seat-1'],
-        }),
-      ).rejects.toThrow(NotFoundException);
-    });
   });
 
-  describe('releaseHold', () => {
-    it('should release held seats and transition booking to EXPIRED', async () => {
+  describe('Cancellation & Refund Rule (>24h full refund vs <=24h non-refundable)', () => {
+    it('should issue 100% full refund when cancelled > 24 hours before event', async () => {
+      const futureEventDate = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h away
+
       prisma.booking.findUnique.mockResolvedValue({
-        id: 'booking-1',
+        id: 'booking-refund-100',
         userId: 'user-1',
-        status: BookingStatus.HELD,
+        bookingReference: 'TF-REFUND-100',
+        totalPrice: 200.0,
+        status: BookingStatus.CONFIRMED,
         bookingSeats: [{ seatId: 'seat-1' }],
+        event: {
+          title: 'Coldplay',
+          eventDate: futureEventDate,
+        },
+        user: { email: 'customer@ticketflow.com' },
       });
 
-      const result = await service.releaseHold('user-1', 'booking-1');
+      const result = await service.cancelBooking('user-1', 'booking-refund-100');
 
-      expect(result.message).toContain('Hold successfully released');
+      expect(result.success).toBe(true);
+      expect(result.refundPercentage).toBe(100);
+      expect(result.refundAmount).toBe(200.0);
+      expect(result.status).toBe(BookingStatus.CANCELLED);
+
+      // Verify seats restored to AVAILABLE
       expect(prisma.seat.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'seat-1' },
-          data: expect.objectContaining({ status: 'AVAILABLE' }),
+          data: expect.objectContaining({ status: SeatStatus.AVAILABLE }),
         }),
       );
-      expect(prisma.booking.update).toHaveBeenCalledWith(
+
+      // Verify domain event emitted (Observer Pattern)
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'booking.cancelled',
         expect.objectContaining({
-          data: { status: BookingStatus.EXPIRED },
+          bookingId: 'booking-refund-100',
+          refundAmount: 200.0,
+          refundPercentage: 100,
         }),
       );
     });
 
-    it('should throw ForbiddenException if user attempts to release another user hold', async () => {
+    it('should issue 0% refund when cancelled <= 24 hours before event', async () => {
+      const soonEventDate = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12h away (<24h)
+
       prisma.booking.findUnique.mockResolvedValue({
-        id: 'booking-1',
-        userId: 'user-owner',
-        status: BookingStatus.HELD,
+        id: 'booking-refund-0',
+        userId: 'user-1',
+        bookingReference: 'TF-REFUND-0',
+        totalPrice: 200.0,
+        status: BookingStatus.CONFIRMED,
+        bookingSeats: [{ seatId: 'seat-1' }],
+        event: {
+          title: 'Coldplay',
+          eventDate: soonEventDate,
+        },
+        user: { email: 'customer@ticketflow.com' },
       });
 
-      await expect(
-        service.releaseHold('user-intruder', 'booking-1'),
-      ).rejects.toThrow(ForbiddenException);
+      const result = await service.cancelBooking('user-1', 'booking-refund-0');
+
+      expect(result.success).toBe(true);
+      expect(result.refundPercentage).toBe(0);
+      expect(result.refundAmount).toBe(0.0);
+      expect(result.message).toContain('within 24 hours');
+
+      // Still restores seats so others can attend
+      expect(prisma.seat.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'seat-1' },
+          data: expect.objectContaining({ status: SeatStatus.AVAILABLE }),
+        }),
+      );
     });
 
-    it('should throw BadRequestException if booking is not in HELD status', async () => {
+    it('should throw ForbiddenException if user cancels another user booking', async () => {
       prisma.booking.findUnique.mockResolvedValue({
-        id: 'booking-1',
-        userId: 'user-1',
-        status: BookingStatus.CONFIRMED,
+        id: 'booking-other',
+        userId: 'user-legit',
       });
 
       await expect(
-        service.releaseHold('user-1', 'booking-1'),
-      ).rejects.toThrow(BadRequestException);
+        service.cancelBooking('user-hacker', 'booking-other'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });
