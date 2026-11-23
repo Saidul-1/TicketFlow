@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { EventItem } from '../types';
-import { Search, MapPin, Calendar, Tag, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { Search, MapPin, Calendar, Tag, ChevronLeft, ChevronRight, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface EventBrowsePageProps {
   onSelectEvent: (eventId: string) => void;
@@ -10,6 +10,7 @@ interface EventBrowsePageProps {
 export const EventBrowsePage: React.FC<EventBrowsePageProps> = ({ onSelectEvent }) => {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>('');
   const [city, setCity] = useState<string>('');
   const [page, setPage] = useState<number>(1);
@@ -17,6 +18,7 @@ export const EventBrowsePage: React.FC<EventBrowsePageProps> = ({ onSelectEvent 
 
   const fetchEvents = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const res = await api.getEvents({
         search: search || undefined,
@@ -26,8 +28,9 @@ export const EventBrowsePage: React.FC<EventBrowsePageProps> = ({ onSelectEvent 
       });
       setEvents(res.data);
       setTotalPages(res.meta.totalPages || 1);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load events:', error);
+      setFetchError(error.message || 'Unable to connect to backend service.');
     } finally {
       setLoading(false);
     }
@@ -104,6 +107,24 @@ export const EventBrowsePage: React.FC<EventBrowsePageProps> = ({ onSelectEvent 
           </button>
         </div>
       </div>
+
+      {/* Backend Connection Error */}
+      {fetchError && (
+        <div className="p-8 bg-red-50 border border-red-200 rounded-3xl text-center space-y-3 shadow-sm">
+          <AlertTriangle className="w-10 h-10 text-red-500 mx-auto" />
+          <h3 className="text-base font-bold text-red-900">Backend Connection Notice</h3>
+          <p className="text-xs text-red-700 max-w-lg mx-auto leading-relaxed">{fetchError}</p>
+          <div className="pt-2 flex items-center justify-center space-x-3">
+            <button
+              onClick={() => fetchEvents()}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center space-x-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Connection</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Events Grid */}
       {loading ? (

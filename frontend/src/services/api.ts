@@ -8,9 +8,34 @@ import {
   PricingStrategyType,
 } from '../types';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000';
-
 class ApiClient {
+  public getBaseUrl(): string {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('tf_api_url') || sessionStorage.getItem('tf_api_url');
+      if (stored) return stored.replace(/\/+$/, '');
+    }
+    const envUrl = (import.meta as any).env?.VITE_API_URL;
+    if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+      return envUrl.trim().replace(/\/+$/, '');
+    }
+    return 'http://localhost:4001';
+  }
+
+  public setBaseUrl(url: string) {
+    if (typeof window !== 'undefined') {
+      const cleaned = url.trim().replace(/\/+$/, '');
+      localStorage.setItem('tf_api_url', cleaned);
+      sessionStorage.setItem('tf_api_url', cleaned);
+    }
+  }
+
+  public clearBaseUrlOverride() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('tf_api_url');
+      sessionStorage.removeItem('tf_api_url');
+    }
+  }
+
   private getToken(): string | null {
     return sessionStorage.getItem('tf_token') || localStorage.getItem('tf_token');
   }
@@ -27,14 +52,27 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...this.getHeaders(),
-        ...options.headers,
-      },
-    });
+    const baseUrl = this.getBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...this.getHeaders(),
+          ...options.headers,
+        },
+      });
+    } catch (netErr: any) {
+      const isMixed = typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http:');
+      const msg = isMixed
+        ? `Browser blocked insecure connection to ${url} (Mixed Content). On HTTPS, backend must also be HTTPS. Please set VITE_API_URL in Vercel to your Render URL or click "Configure API URL".`
+        : `Network Error: Unable to reach backend at ${url}. If using Render free tier, the backend may take 30-50 seconds to wake up from cold sleep.`;
+      const error: any = new Error(msg);
+      error.isNetworkError = true;
+      throw error;
+    }
 
     const data = await response.json().catch(() => null);
 
