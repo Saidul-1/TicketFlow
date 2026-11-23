@@ -54,14 +54,27 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       setEvent(eventData);
       setSeatMap(seatMapData);
 
-      // Restore active booking from server if present
+      // Restore active booking for THIS user from server if present
       if (seatMapData.activeBooking) {
         setActiveBooking(seatMapData.activeBooking);
-      } else if (activeBookingRef.current && !seatMapData.seats.some((s) => s.isHeldByMe)) {
-        // Hold expired on server
+      } else {
+        // No active hold for current user
         setActiveBooking(null);
         setSecondsRemaining(0);
       }
+
+      // Filter out any selected seats that became unavailable during polling
+      setSelectedSeatIds((prev) => {
+        if (prev.length === 0) return prev;
+        const availableIds = seatMapData.seats
+          .filter((s) => s.status === 'AVAILABLE')
+          .map((s) => s.id);
+        const stillAvailable = prev.filter((id) => availableIds.includes(id));
+        if (stillAvailable.length < prev.length) {
+          setErrorMessage('Notice: One of your selected seats was just taken by another customer.');
+        }
+        return stillAvailable;
+      });
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load event details');
     } finally {
@@ -125,14 +138,9 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
 
     // If seat is held by someone else or booked
     if (seat.status !== 'AVAILABLE') {
-      // Allow testing the race condition: Attempt hold to trigger 409 Conflict
-      try {
-        await api.holdSeats(eventId, [seat.id]);
-      } catch (err: any) {
-        setErrorMessage(
-          err.message || `Seat ${seat.rowLabel}${seat.seatNumber} is already held or booked by another user. Zero double-booking guarantee enforced.`
-        );
-      }
+      setErrorMessage(
+        `Seat ${seat.rowLabel}${seat.seatNumber} is currently held or booked by another customer. Please choose an available seat.`
+      );
       return;
     }
 
@@ -186,6 +194,29 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       setErrorMessage(err.message || 'Failed to release hold');
     } finally {
       setIsReleasing(false);
+    }
+  };
+
+  // Dedicated demo action to simulate a simultaneous race condition (409 Conflict)
+  const handleSimulateRaceCondition = async () => {
+    if (!user) {
+      setErrorMessage('Please sign in to test the concurrency race condition.');
+      return;
+    }
+    const contestedSeat = seatMap?.seats.find((s) => s.status !== 'AVAILABLE' && !s.isHeldByMe);
+    if (!contestedSeat) {
+      setErrorMessage('No contested seat found. Sign in as another customer and hold a seat first.');
+      return;
+    }
+
+    try {
+      await api.holdSeats(eventId, [contestedSeat.id]);
+      setSuccessMessage(`Acquired seat ${contestedSeat.rowLabel}${contestedSeat.seatNumber}.`);
+      await loadEventAndSeats(true);
+    } catch (err: any) {
+      setErrorMessage(
+        err.message || `Conflict: Seat ${contestedSeat.rowLabel}${contestedSeat.seatNumber} is already held by another user. PostgreSQL conditional update rejected duplicate hold!`
+      );
     }
   };
 
@@ -491,14 +522,25 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
               <strong>Zero Double-Booking Guarantee:</strong> Row-level atomic conditional updates guarantee exactly one winner under simultaneous concurrent requests.
             </span>
           </div>
-          {activeBooking && (
-            <button
-              onClick={() => setIsCheckoutOpen(true)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition shrink-0"
-            >
-              Checkout Held Seats (${activeBooking.totalPrice.toFixed(2)})
-            </button>
-          )}
+          <div className="flex items-center space-x-2 shrink-0">
+            {seatMap.seats.some((s) => s.status !== 'AVAILABLE' && !s.isHeldByMe) && (
+              <button
+                type="button"
+                onClick={handleSimulateRaceCondition}
+                className="px-3.5 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-xl border border-amber-300 transition"
+              >
+                Simulate Race Condition (409)
+              </button>
+            )}
+            {activeBooking && (
+              <button
+                onClick={() => setIsCheckoutOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition shrink-0"
+              >
+                Checkout Held Seats (${activeBooking.totalPrice.toFixed(2)})
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

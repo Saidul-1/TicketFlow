@@ -35,13 +35,16 @@ function MainApp() {
 
           {currentView === 'event-details' && selectedEventId && (
             <EventDetailsPage
+              key={`${selectedEventId}-${user?.id || 'guest'}`}
               eventId={selectedEventId}
               onBack={() => handleNavigate('browse')}
               onNavigateToBookings={() => handleNavigate('my-bookings')}
             />
           )}
 
-          {currentView === 'my-bookings' && <MyBookingsPage />}
+          {currentView === 'my-bookings' && (
+            <MyBookingsPage key={`my-bookings-${user?.id || 'guest'}`} />
+          )}
 
           {currentView === 'organizer' && (
             user?.role === 'ORGANIZER' ? (

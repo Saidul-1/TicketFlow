@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { BookingRecord } from '../types';
+import { CheckoutModal } from '../components/CheckoutModal';
 import {
   Calendar,
   MapPin,
@@ -16,6 +17,7 @@ export const MyBookingsPage: React.FC = () => {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [cancellingBooking, setCancellingBooking] = useState<BookingRecord | null>(null);
+  const [payingBooking, setPayingBooking] = useState<BookingRecord | null>(null);
   const [cancelLoading, setCancelLoading] = useState<boolean>(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -27,6 +29,16 @@ export const MyBookingsPage: React.FC = () => {
       console.error('Failed to load bookings:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReleaseHold = async (bookingId: string) => {
+    try {
+      await api.releaseHold(bookingId);
+      setActionMessage('Seat hold successfully released.');
+      await loadBookings();
+    } catch (err: any) {
+      setActionMessage(err.message || 'Failed to release hold');
     }
   };
 
@@ -189,6 +201,25 @@ export const MyBookingsPage: React.FC = () => {
                         Cancel Booking
                       </button>
                     )}
+
+                    {isHeld && (booking.secondsRemaining || 0) > 0 && (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setPayingBooking(booking)}
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition shadow-sm"
+                        >
+                          Complete Payment (${booking.totalPrice.toFixed(2)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReleaseHold(booking.id)}
+                          className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition"
+                        >
+                          Release Hold
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -288,6 +319,19 @@ export const MyBookingsPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Checkout Modal for HELD Bookings */}
+      {payingBooking && (
+        <CheckoutModal
+          isOpen={!!payingBooking}
+          onClose={() => setPayingBooking(null)}
+          booking={payingBooking}
+          onPaymentSuccess={() => {
+            setPayingBooking(null);
+            loadBookings();
+          }}
+        />
       )}
     </div>
   );
