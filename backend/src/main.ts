@@ -10,7 +10,10 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: '*',
+    origin: (origin, callback) => {
+      // Dynamic origin callback avoids '*' wildcard issues with credentials
+      callback(null, true);
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
