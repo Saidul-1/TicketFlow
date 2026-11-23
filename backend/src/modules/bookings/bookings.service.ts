@@ -168,6 +168,7 @@ export class BookingsService {
         bookingReference: booking.bookingReference,
         status: booking.status,
         eventId: event.id,
+        userId: booking.userId || userId,
         eventTitle: event.title,
         totalPrice,
         holdExpiresAt,

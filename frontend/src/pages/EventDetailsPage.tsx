@@ -55,7 +55,7 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       setSeatMap(seatMapData);
 
       // Restore active booking for THIS user from server if present
-      if (seatMapData.activeBooking) {
+      if (seatMapData.activeBooking && user && seatMapData.activeBooking.userId === user.id) {
         setActiveBooking(seatMapData.activeBooking);
       } else {
         // No active hold for current user
@@ -321,8 +321,8 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
         </div>
       </div>
 
-      {/* Sticky Hold Timer Alert (if seats are currently held) */}
-      {activeBooking && secondsRemaining > 0 && (
+      {/* Sticky Hold Timer Alert (if seats are currently held by this user) */}
+      {activeBooking && user && activeBooking.userId === user.id && secondsRemaining > 0 && (
         <div className="sticky top-20 z-30 bg-amber-500 text-slate-950 p-4 rounded-2xl shadow-xl border border-amber-400 flex flex-col sm:flex-row items-center justify-between gap-3 animate-pulse">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-bold shrink-0">
@@ -532,7 +532,7 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
                 Simulate Race Condition (409)
               </button>
             )}
-            {activeBooking && (
+            {activeBooking && activeBooking.userId === user?.id && (
               <button
                 onClick={() => setIsCheckoutOpen(true)}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition shrink-0"
@@ -545,7 +545,7 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       </div>
 
       {/* Checkout Modal */}
-      {activeBooking && (
+      {activeBooking && activeBooking.userId === user?.id && (
         <CheckoutModal
           isOpen={isCheckoutOpen}
           onClose={() => {

@@ -16,18 +16,24 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('tf_token'));
+  const [token, setToken] = useState<string | null>(
+    sessionStorage.getItem('tf_token') || localStorage.getItem('tf_token')
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
     const initAuth = async () => {
-      const storedToken = localStorage.getItem('tf_token');
+      const storedToken = sessionStorage.getItem('tf_token') || localStorage.getItem('tf_token');
       if (storedToken) {
+        // Pin token in this tab's sessionStorage for strict tab isolation
+        sessionStorage.setItem('tf_token', storedToken);
         try {
           const profile = await api.getMe();
           setUser(profile);
+          setToken(storedToken);
         } catch {
           // Token expired or invalid
+          sessionStorage.removeItem('tf_token');
           localStorage.removeItem('tf_token');
           setToken(null);
           setUser(null);
@@ -41,6 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     const res = await api.login(email, password);
+    sessionStorage.setItem('tf_token', res.accessToken);
     localStorage.setItem('tf_token', res.accessToken);
     setToken(res.accessToken);
     setUser(res.user);
@@ -48,6 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (email: string, password: string, fullName: string, role: Role) => {
     const res = await api.register(email, password, fullName, role);
+    sessionStorage.setItem('tf_token', res.accessToken);
     localStorage.setItem('tf_token', res.accessToken);
     setToken(res.accessToken);
     setUser(res.user);
@@ -64,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    sessionStorage.removeItem('tf_token');
     localStorage.removeItem('tf_token');
     setToken(null);
     setUser(null);

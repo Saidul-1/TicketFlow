@@ -11,11 +11,15 @@ import {
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000';
 
 class ApiClient {
+  private getToken(): string | null {
+    return sessionStorage.getItem('tf_token') || localStorage.getItem('tf_token');
+  }
+
   private getHeaders(): HeadersInit {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    const token = localStorage.getItem('tf_token');
+    const token = this.getToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }

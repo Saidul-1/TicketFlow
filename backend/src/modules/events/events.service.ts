@@ -342,6 +342,7 @@ export class EventsService {
           bookingReference: activeBooking.bookingReference,
           status: activeBooking.status,
           eventId: activeBooking.eventId,
+          userId: activeBooking.userId,
           eventTitle: event.title,
           totalPrice: Number(activeBooking.totalPrice),
           holdExpiresAt: activeBooking.holdExpiresAt,

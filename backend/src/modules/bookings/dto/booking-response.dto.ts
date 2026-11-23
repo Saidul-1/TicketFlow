@@ -31,6 +31,9 @@ export class BookingResponseDto {
   @ApiProperty({ example: 'event-uuid' })
   eventId: string;
 
+  @ApiProperty({ example: 'user-uuid' })
+  userId: string;
+
   @ApiProperty({ example: 'Coldplay Tour' })
   eventTitle: string;
 
