@@ -44,7 +44,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate }) => {
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 10000); // Polling every 10s for new in-app alerts
+    if (!user) return;
+    const interval = setInterval(fetchNotifications, 15000); // Polling every 15s for new in-app alerts
     return () => clearInterval(interval);
   }, [user]);
 

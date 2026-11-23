@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { SeatStatus } from '@prisma/client';
+import { BookingResponseDto } from '../../bookings/dto/booking-response.dto';
 
 export class SeatMapItemDto {
   @ApiProperty({ example: 'seat-uuid' })
@@ -45,4 +46,8 @@ export class SeatMapResponseDto {
 
   @ApiProperty({ type: [SeatMapItemDto] })
   seats: SeatMapItemDto[];
+
+  @ApiProperty({ type: () => BookingResponseDto, required: false })
+  activeBooking?: BookingResponseDto;
 }
+

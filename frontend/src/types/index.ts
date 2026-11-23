@@ -63,6 +63,7 @@ export interface SeatMapResponse {
   totalRows: number;
   seatsPerRow: number;
   seats: SeatMapItem[];
+  activeBooking?: BookingRecord;
 }
 
 export interface BookingSeatItem {

@@ -24,6 +24,7 @@ describe('BookingsService - Concurrency, Holds & Cancellation', () => {
       },
       booking: {
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
@@ -34,6 +35,7 @@ describe('BookingsService - Concurrency, Holds & Cancellation', () => {
       seat: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       },
       $executeRaw: jest.fn(),
       $transaction: jest.fn((cb) => cb(prisma)),

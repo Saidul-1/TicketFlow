@@ -41,6 +41,38 @@ export class BookingsService {
     const holdExpiresAt = new Date(Date.now() + holdDurationMinutes * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
+      // Clean up any previous active hold for this user on this event
+      const previousHold = await tx.booking.findFirst({
+        where: {
+          userId,
+          eventId: event.id,
+          status: BookingStatus.HELD,
+        },
+        include: { bookingSeats: true },
+      });
+
+      if (previousHold) {
+        for (const bs of previousHold.bookingSeats) {
+          if (!dto.seatIds.includes(bs.seatId)) {
+            await tx.seat.updateMany({
+              where: {
+                id: bs.seatId,
+                heldByUserId: userId,
+              },
+              data: {
+                status: SeatStatus.AVAILABLE,
+                heldByUserId: null,
+                holdExpiresAt: null,
+              },
+            });
+          }
+        }
+        await tx.booking.update({
+          where: { id: previousHold.id },
+          data: { status: BookingStatus.EXPIRED },
+        });
+      }
+
       const heldSeatsDetails: BookingSeatItemDto[] = [];
       let totalPrice = 0;
 
@@ -341,13 +373,18 @@ export class BookingsService {
     }
 
     const now = new Date();
+    let effectiveStatus = booking.status;
+    if (booking.status === BookingStatus.HELD && booking.holdExpiresAt && booking.holdExpiresAt < now) {
+      effectiveStatus = BookingStatus.EXPIRED;
+    }
     const secondsRemaining =
-      booking.status === BookingStatus.HELD && booking.holdExpiresAt
+      effectiveStatus === BookingStatus.HELD && booking.holdExpiresAt
         ? Math.max(0, Math.floor((booking.holdExpiresAt.getTime() - now.getTime()) / 1000))
         : 0;
 
     return {
       ...booking,
+      status: effectiveStatus,
       totalPrice: Number(booking.totalPrice),
       refundAmount: booking.refundAmount ? Number(booking.refundAmount) : null,
       secondsRemaining,
@@ -390,14 +427,21 @@ export class BookingsService {
     });
 
     const now = new Date();
-    return bookings.map((b) => ({
-      ...b,
-      totalPrice: Number(b.totalPrice),
-      refundAmount: b.refundAmount ? Number(b.refundAmount) : null,
-      secondsRemaining:
-        b.status === BookingStatus.HELD && b.holdExpiresAt
-          ? Math.max(0, Math.floor((b.holdExpiresAt.getTime() - now.getTime()) / 1000))
-          : 0,
-    }));
+    return bookings.map((b) => {
+      let effectiveStatus = b.status;
+      if (b.status === BookingStatus.HELD && b.holdExpiresAt && b.holdExpiresAt < now) {
+        effectiveStatus = BookingStatus.EXPIRED;
+      }
+      return {
+        ...b,
+        status: effectiveStatus,
+        totalPrice: Number(b.totalPrice),
+        refundAmount: b.refundAmount ? Number(b.refundAmount) : null,
+        secondsRemaining:
+          effectiveStatus === BookingStatus.HELD && b.holdExpiresAt
+            ? Math.max(0, Math.floor((b.holdExpiresAt.getTime() - now.getTime()) / 1000))
+            : 0,
+      };
+    });
   }
 }

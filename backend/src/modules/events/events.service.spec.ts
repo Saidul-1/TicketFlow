@@ -25,6 +25,9 @@ describe('EventsService', () => {
       seat: {
         createMany: jest.fn(),
       },
+      booking: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
     };
 
     const module: TestingModule = await Test.createTestingModule({

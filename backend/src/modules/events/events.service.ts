@@ -9,7 +9,7 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { SeatMapResponseDto, SeatMapItemDto } from './dto/seat-map-response.dto';
-import { Prisma, SeatStatus } from '@prisma/client';
+import { Prisma, SeatStatus, BookingStatus } from '@prisma/client';
 
 @Injectable()
 export class EventsService {
@@ -311,12 +311,59 @@ export class EventsService {
       };
     });
 
+    let activeBookingDto: any = undefined;
+    if (currentUserId) {
+      const activeBooking = await this.prisma.booking.findFirst({
+        where: {
+          eventId,
+          userId: currentUserId,
+          status: BookingStatus.HELD,
+          holdExpiresAt: { gt: now },
+        },
+        include: {
+          bookingSeats: {
+            include: {
+              seat: {
+                include: { seatTier: true },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (activeBooking && activeBooking.holdExpiresAt) {
+        const remaining = Math.max(
+          0,
+          Math.floor((activeBooking.holdExpiresAt.getTime() - now.getTime()) / 1000),
+        );
+        activeBookingDto = {
+          id: activeBooking.id,
+          bookingReference: activeBooking.bookingReference,
+          status: activeBooking.status,
+          eventId: activeBooking.eventId,
+          eventTitle: event.title,
+          totalPrice: Number(activeBooking.totalPrice),
+          holdExpiresAt: activeBooking.holdExpiresAt,
+          secondsRemaining: remaining,
+          seats: activeBooking.bookingSeats.map((bs) => ({
+            seatId: bs.seatId,
+            rowLabel: bs.seat.rowLabel,
+            seatNumber: bs.seat.seatNumber,
+            tierName: bs.seat.seatTier.name,
+            price: Number(bs.priceCharged),
+          })),
+        };
+      }
+    }
+
     return {
       eventId: event.id,
       eventTitle: event.title,
       totalRows: event.totalRows,
       seatsPerRow: event.seatsPerRow,
       seats: formattedSeats,
+      activeBooking: activeBookingDto,
     };
   }
 

@@ -30,8 +30,11 @@ describe('Concurrency Simulation - Zero Double-Booking Guarantee', () => {
           seatNumber: 1,
           seatTier: { name: 'Front Row', basePrice: 200 },
         }),
+        update: jest.fn(),
+        updateMany: jest.fn(),
       },
       booking: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockImplementation((args) => ({
           id: `booking-${Math.random()}`,
           bookingReference: `TF-CONCUR-${Math.random()}`,

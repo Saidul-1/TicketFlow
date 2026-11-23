@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { EventItem, SeatMapResponse, SeatMapItem, BookingRecord } from '../types';
@@ -12,6 +12,9 @@ import {
   Lock,
   Tag,
   ShieldCheck,
+  CheckCircle2,
+  Trash2,
+  Zap,
 } from 'lucide-react';
 
 interface EventDetailsPageProps {
@@ -29,13 +32,21 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
   const [event, setEvent] = useState<EventItem | null>(null);
   const [seatMap, setSeatMap] = useState<SeatMapResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [selectedSeatIds, setSelectedSeatIds] = useState<string[]>([]);
   const [activeBooking, setActiveBooking] = useState<BookingRecord | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
+  const [isHolding, setIsHolding] = useState<boolean>(false);
+  const [isReleasing, setIsReleasing] = useState<boolean>(false);
 
-  const loadEventAndSeats = async () => {
+  const activeBookingRef = useRef<BookingRecord | null>(null);
+  activeBookingRef.current = activeBooking;
+
+  const loadEventAndSeats = async (silent = false) => {
     try {
+      if (!silent) setLoading(true);
       const [eventData, seatMapData] = await Promise.all([
         api.getEvent(eventId),
         api.getEventSeatMap(eventId),
@@ -43,43 +54,52 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       setEvent(eventData);
       setSeatMap(seatMapData);
 
-      // Check if user already has held seats in this event
-      const myHeldSeat = seatMapData.seats.find((s) => s.isHeldByMe);
-      if (myHeldSeat && myHeldSeat.secondsRemaining > 0) {
-        setSecondsRemaining(myHeldSeat.secondsRemaining);
+      // Restore active booking from server if present
+      if (seatMapData.activeBooking) {
+        setActiveBooking(seatMapData.activeBooking);
+      } else if (activeBookingRef.current && !seatMapData.seats.some((s) => s.isHeldByMe)) {
+        // Hold expired on server
+        setActiveBooking(null);
+        setSecondsRemaining(0);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load event details');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadEventAndSeats();
-    // Refresh seat map every 8 seconds to reflect other users' holds & lazy releases
-    const interval = setInterval(loadEventAndSeats, 8000);
+    // Refresh seat map every 10 seconds to reflect other users' holds & lazy releases
+    const interval = setInterval(() => loadEventAndSeats(true), 10000);
     return () => clearInterval(interval);
-  }, [eventId]);
+  }, [eventId, user?.id]);
 
-  // Live Hold Countdown Timer
+  // Smooth, monotonic countdown timer using target timestamp (Zero jitter!)
   useEffect(() => {
-    if (secondsRemaining <= 0) return;
+    if (!activeBooking?.holdExpiresAt) {
+      setSecondsRemaining(0);
+      return;
+    }
 
-    const timer = setInterval(() => {
-      setSecondsRemaining((prev) => {
-        if (prev <= 1) {
-          // Timer reached 0! Hold expired lazily
-          setActiveBooking(null);
-          loadEventAndSeats();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const targetTime = new Date(activeBooking.holdExpiresAt).getTime();
 
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, Math.floor((targetTime - now) / 1000));
+      setSecondsRemaining(remaining);
+      if (remaining <= 0) {
+        setActiveBooking(null);
+        setErrorMessage('Your 5-minute seat hold has expired. The seats have been released.');
+        loadEventAndSeats(true);
+      }
+    };
+
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [secondsRemaining]);
+  }, [activeBooking?.holdExpiresAt]);
 
   const formatCountdown = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -87,44 +107,85 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Seat Click handler
   const handleSeatClick = async (seat: SeatMapItem) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
     if (!user) {
       setErrorMessage('Please sign in to select and hold seats.');
       return;
     }
 
-    if (seat.status !== 'AVAILABLE') {
-      if (seat.isHeldByMe) {
-        // Already held by this user
-        return;
-      }
-      setErrorMessage(`Seat ${seat.rowLabel}${seat.seatNumber} is unavailable.`);
+    // If seat is currently held by this user
+    if (seat.isHeldByMe) {
+      setSuccessMessage(`You are currently holding seat ${seat.rowLabel}${seat.seatNumber}. Complete checkout or click "Release Hold" to change seats.`);
       return;
     }
 
-    setErrorMessage(null);
-    try {
-      // ATOMIC HOLD API CALL
-      const booking = await api.holdSeats(eventId, [seat.id]);
-      setActiveBooking(booking);
-      setSecondsRemaining(booking.secondsRemaining || 300);
-      await loadEventAndSeats();
-    } catch (err: any) {
-      // Concurrency conflict error caught!
-      setErrorMessage(err.message || 'Seat reservation conflict occurred. Please pick another seat.');
-      await loadEventAndSeats();
+    // If seat is held by someone else or booked
+    if (seat.status !== 'AVAILABLE') {
+      // Allow testing the race condition: Attempt hold to trigger 409 Conflict
+      try {
+        await api.holdSeats(eventId, [seat.id]);
+      } catch (err: any) {
+        setErrorMessage(
+          err.message || `Seat ${seat.rowLabel}${seat.seatNumber} is already held or booked by another user. Zero double-booking guarantee enforced.`
+        );
+      }
+      return;
+    }
+
+    // Toggle seat selection
+    if (selectedSeatIds.includes(seat.id)) {
+      setSelectedSeatIds((prev) => prev.filter((id) => id !== seat.id));
+    } else {
+      setSelectedSeatIds((prev) => [...prev, seat.id]);
     }
   };
 
+  // Execute Atomic Hold on all selected seats
+  const handleHoldSelectedSeats = async () => {
+    if (selectedSeatIds.length === 0) return;
+    if (!user) {
+      setErrorMessage('Please sign in to hold seats.');
+      return;
+    }
+
+    setIsHolding(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const booking = await api.holdSeats(eventId, selectedSeatIds);
+      setActiveBooking(booking);
+      setSelectedSeatIds([]);
+      const seatsCount = (booking.seats || []).length;
+      setSuccessMessage(`Successfully placed ${seatsCount} seat(s) on a 5-minute atomic hold!`);
+      await loadEventAndSeats(true);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Seat reservation conflict occurred. Please pick another seat.');
+      await loadEventAndSeats(true);
+    } finally {
+      setIsHolding(false);
+    }
+  };
+
+  // Release active hold
   const handleReleaseHold = async () => {
     if (!activeBooking) return;
+    setIsReleasing(true);
+    setErrorMessage(null);
     try {
       await api.releaseHold(activeBooking.id);
       setActiveBooking(null);
       setSecondsRemaining(0);
-      await loadEventAndSeats();
+      setSuccessMessage('Your seat hold was released and made available for other customers.');
+      await loadEventAndSeats(true);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to release hold');
+    } finally {
+      setIsReleasing(false);
     }
   };
 
@@ -136,6 +197,12 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
       </div>
     );
   }
+
+  // Calculate pricing for currently selected seats
+  const selectedSeatsList = seatMap.seats.filter((s) => selectedSeatIds.includes(s.id));
+  const rawSelectedTotal = selectedSeatsList.reduce((sum, s) => sum + s.basePrice, 0);
+  const discountMultiplier = event.pricingStrategy === 'EARLY_BIRD' ? 0.8 : 1.0;
+  const estimatedTotal = rawSelectedTotal * discountMultiplier;
 
   // Group seats by row
   const rowsMap: Record<string, SeatMapItem[]> = {};
@@ -223,39 +290,42 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
         </div>
       </div>
 
-      {/* Sticky Hold Timer Alert (if seat is held) */}
-      {secondsRemaining > 0 && (
-        <div className="sticky top-20 z-30 bg-amber-500 text-slate-950 p-4 rounded-2xl shadow-lg border border-amber-400 flex flex-col sm:flex-row items-center justify-between gap-3 animate-pulse">
+      {/* Sticky Hold Timer Alert (if seats are currently held) */}
+      {activeBooking && secondsRemaining > 0 && (
+        <div className="sticky top-20 z-30 bg-amber-500 text-slate-950 p-4 rounded-2xl shadow-xl border border-amber-400 flex flex-col sm:flex-row items-center justify-between gap-3 animate-pulse">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-bold shrink-0">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <p className="font-bold text-sm">Temporary Seat Hold Active!</p>
+              <p className="font-bold text-sm">
+                Temporary Hold Active! ({(activeBooking.seats || []).map((s) => `${s.rowLabel}${s.seatNumber}`).join(', ')})
+              </p>
               <p className="text-xs text-slate-900">
-                Exclusive hold expires in <span className="font-mono font-black text-sm">{formatCountdown(secondsRemaining)}</span>. Complete checkout to secure your seats.
+                Exclusive hold expires in <span className="font-mono font-black text-sm">{formatCountdown(secondsRemaining)}</span>. Complete checkout to confirm your tickets.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 shrink-0">
             <button
               onClick={handleReleaseHold}
-              className="px-3 py-1.5 bg-white/80 hover:bg-white text-slate-900 font-bold text-xs rounded-xl transition"
+              disabled={isReleasing}
+              className="px-3.5 py-2 bg-white/90 hover:bg-white text-slate-900 font-bold text-xs rounded-xl shadow-sm transition disabled:opacity-50"
             >
-              Release Hold
+              {isReleasing ? 'Releasing...' : 'Release Hold'}
             </button>
             <button
               onClick={() => setIsCheckoutOpen(true)}
               className="px-5 py-2 bg-slate-950 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow transition"
             >
-              Proceed to Payment
+              Proceed to Payment (${activeBooking.totalPrice.toFixed(2)})
             </button>
           </div>
         </div>
       )}
 
-      {/* Concurrency Error / Alert Banner */}
+      {/* Concurrency Error Banner */}
       {errorMessage && (
         <div className="p-4 bg-red-50 border border-red-200 text-red-800 text-xs rounded-2xl flex items-center justify-between shadow-sm">
           <div className="flex items-center space-x-2.5">
@@ -271,12 +341,28 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
         </div>
       )}
 
+      {/* Success Notification Banner */}
+      {successMessage && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span className="font-medium leading-relaxed">{successMessage}</span>
+          </div>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-emerald-600 hover:text-emerald-800 font-bold text-xs px-2 py-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Interactive Seat Map Viewport */}
       <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-10 shadow-sm space-y-8">
         <div className="text-center">
           <h2 className="text-lg font-bold text-slate-900">Interactive Seat Selection</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Click an available seat to lock in a 5-minute atomic hold.
+            Click available seats to select, then click &quot;Hold Selected Seats&quot; to lock them in a 5-minute atomic hold.
           </p>
 
           {/* Stage Visual */}
@@ -292,11 +378,15 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
             <span>Available</span>
           </div>
           <div className="flex items-center space-x-1.5">
+            <span className="w-4 h-4 rounded-md bg-indigo-600 border border-indigo-700"></span>
+            <span>Selected (Click to Hold)</span>
+          </div>
+          <div className="flex items-center space-x-1.5">
             <span className="w-4 h-4 rounded-md bg-amber-400 border border-amber-600 animate-pulse"></span>
             <span>Held by You (5m)</span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <span className="w-4 h-4 rounded-md bg-slate-300"></span>
+            <span className="w-4 h-4 rounded-md bg-slate-200 border border-slate-300"></span>
             <span>Unavailable / Booked</span>
           </div>
         </div>
@@ -311,13 +401,16 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
                   {rowsMap[row].map((seat) => {
                     const isAvailable = seat.status === 'AVAILABLE';
                     const isHeldByMe = seat.isHeldByMe;
+                    const isSelected = selectedSeatIds.includes(seat.id);
                     const isBookedOrHeldByOther = !isAvailable && !isHeldByMe;
 
-                    let seatColor = 'bg-emerald-500 hover:bg-emerald-600 text-white hover:scale-110';
+                    let seatColor = 'bg-emerald-500 hover:bg-emerald-600 text-white hover:scale-105';
                     if (isHeldByMe) {
                       seatColor = 'bg-amber-400 text-slate-950 font-bold border-2 border-amber-600 shadow-md animate-pulse';
+                    } else if (isSelected) {
+                      seatColor = 'bg-indigo-600 text-white font-bold ring-4 ring-indigo-200 shadow-lg scale-105';
                     } else if (isBookedOrHeldByOther) {
-                      seatColor = 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-80';
+                      seatColor = 'bg-slate-200 text-slate-400 hover:bg-slate-300 border border-slate-300';
                     }
 
                     return (
@@ -325,12 +418,15 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
                         key={seat.id}
                         type="button"
                         onClick={() => handleSeatClick(seat)}
-                        disabled={isBookedOrHeldByOther}
-                        title={`Row ${seat.rowLabel}, Seat ${seat.seatNumber} (${seat.tierName}) - $${seat.basePrice.toFixed(2)}`}
+                        title={`Row ${seat.rowLabel}, Seat ${seat.seatNumber} (${seat.tierName}) - $${seat.basePrice.toFixed(2)}${
+                          isBookedOrHeldByOther ? ' (Click to test concurrency conflict)' : ''
+                        }`}
                         className={`w-9 h-9 rounded-xl text-xs font-semibold flex items-center justify-center transition shadow-sm ${seatColor}`}
                       >
                         {isBookedOrHeldByOther ? (
                           <Lock className="w-3.5 h-3.5" />
+                        ) : isSelected ? (
+                          <CheckCircle2 className="w-4 h-4" />
                         ) : (
                           `${seat.rowLabel}${seat.seatNumber}`
                         )}
@@ -344,20 +440,63 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
           </div>
         </div>
 
+        {/* Selected Seats Batch Action Bar */}
+        {selectedSeatIds.length > 0 && (
+          <div className="p-5 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl border-2 border-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
+                {selectedSeatIds.length}
+              </div>
+              <div>
+                <p className="font-bold text-sm text-slate-900">
+                  {selectedSeatIds.length} Seat(s) Selected:{' '}
+                  <span className="text-indigo-600">
+                    {selectedSeatsList.map((s) => `${s.rowLabel}${s.seatNumber}`).join(', ')}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-600">
+                  Total: <strong className="text-slate-900 font-mono">${estimatedTotal.toFixed(2)}</strong>
+                  {event.pricingStrategy === 'EARLY_BIRD' && ' (Includes 20% Early Bird Discount!)'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setSelectedSeatIds([])}
+                className="px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200 text-xs font-bold rounded-xl transition flex items-center space-x-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleHoldSelectedSeats}
+                disabled={isHolding}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center space-x-2 disabled:opacity-50"
+              >
+                <Zap className="w-4 h-4" />
+                <span>{isHolding ? 'Locking Seats...' : `Hold ${selectedSeatIds.length} Seat(s) (5:00)`}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Bottom Concurrency Callout */}
-        <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex items-center justify-between text-xs text-indigo-900">
+        <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-indigo-900">
           <div className="flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-indigo-600" />
+            <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0" />
             <span>
-              <strong>Zero Double-Booking Guarantee:</strong> Row-level atomic updates lock your selected seat instantly upon click.
+              <strong>Zero Double-Booking Guarantee:</strong> Row-level atomic conditional updates guarantee exactly one winner under simultaneous concurrent requests.
             </span>
           </div>
           {activeBooking && (
             <button
               onClick={() => setIsCheckoutOpen(true)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow transition shrink-0"
             >
-              Checkout Now (${activeBooking.totalPrice.toFixed(2)})
+              Checkout Held Seats (${activeBooking.totalPrice.toFixed(2)})
             </button>
           )}
         </div>
@@ -375,7 +514,8 @@ export const EventDetailsPage: React.FC<EventDetailsPageProps> = ({
           onPaymentSuccess={() => {
             setActiveBooking(null);
             setSecondsRemaining(0);
-            loadEventAndSeats();
+            setSelectedSeatIds([]);
+            loadEventAndSeats(true);
           }}
         />
       )}
